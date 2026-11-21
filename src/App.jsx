@@ -27,7 +27,8 @@ export default function App() {
   const [showResultsPopup, setShowResultsPopup] = useState(false);
   const [customText, setCustomText] = useState('');
   const [history, setHistory] = useState([]);
-  const [activeMenu, setActiveMenu] = useState(null); // 'file' | 'edit' | 'settings' | 'help' | null
+  const [activeMenu, setActiveMenu] = useState(null); // 'file' | 'settings' | 'help' | null
+  const [darkMode, setDarkMode] = useState(false);
 
   const inputRef = useRef(null);
   const timerRef = useRef(null);
@@ -245,6 +246,21 @@ export default function App() {
 
     if (e.key === 'Tab') {
       e.preventDefault();
+      // Start timer if this is the first keypress
+      if (!isRunning) {
+        setIsRunning(true);
+        if (!sessionStartedRef.current) {
+          sessionStartedRef.current = true;
+          setStartTime(Date.now());
+          deadlineRef.current = Date.now() + timeLeft * 1000;
+        } else if (!deadlineRef.current) {
+          deadlineRef.current = Date.now() + timeLeft * 1000;
+        }
+      }
+      setTypedChars(prev => {
+        if (prev.length >= passage.length) return prev;
+        return prev + '\t';
+      });
       return;
     }
 
@@ -320,11 +336,10 @@ export default function App() {
   };
 
   const handleCustomTextSubmit = () => {
-    const trimmed = customText.trim();
-    if (trimmed.length < 10) return;
+    if (customText.length < 10) return;
     setTextSource('custom');
-    setPassage(trimmed);
-    resetTest(trimmed, timeLimit);
+    setPassage(customText);
+    resetTest(customText, timeLimit);
     setShowCustomModal(false);
     setCustomText('');
   };
@@ -377,7 +392,7 @@ export default function App() {
   }, [typedChars, passage, isFinished]);
 
   return (
-    <div className="tp-desktop">
+    <div className={`tp-desktop ${darkMode ? 'tp-dark' : ''}`}>
       {/* Hidden input capture for all typing */}
       <input
         ref={inputRef}
@@ -443,25 +458,6 @@ export default function App() {
           <div className="menu-item">
             <button
               className="menu-button"
-              onClick={() => setActiveMenu(activeMenu === 'edit' ? null : 'edit')}
-            >
-              Edit
-            </button>
-            {activeMenu === 'edit' && (
-              <div className="menu-dropdown">
-                <div className="menu-dropdown-item" onClick={() => { resetTest(passage, timeLimit); setActiveMenu(null); }}>
-                  Clear Typed Text
-                </div>
-                <div className="menu-dropdown-item" onClick={() => { resetTest(passage, timeLimit); setActiveMenu(null); }}>
-                  Restart Passage
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="menu-item">
-            <button
-              className="menu-button"
               onClick={() => setActiveMenu(activeMenu === 'settings' ? null : 'settings')}
             >
               Settings
@@ -471,15 +467,20 @@ export default function App() {
                 <div
                   className="menu-dropdown-item"
                   onClick={() => {
-                    setShowIndicator(prev => !prev);
+                    setDarkMode(false);
                     setActiveMenu(null);
                   }}
                 >
-                  {showIndicator ? '✓ ' : '   '} Character Position Indicator
+                  {!darkMode ? '✓ ' : '   '} Light Mode
                 </div>
-                <div className="menu-dropdown-divider" />
-                <div className="menu-dropdown-item" onClick={() => { setShowHistoryModal(true); setActiveMenu(null); }}>
-                  View All Past Records
+                <div
+                  className="menu-dropdown-item"
+                  onClick={() => {
+                    setDarkMode(true);
+                    setActiveMenu(null);
+                  }}
+                >
+                  {darkMode ? '✓ ' : '   '} Dark Mode
                 </div>
               </div>
             )}
@@ -584,13 +585,27 @@ export default function App() {
             </button>
           </div>
 
+          {/* End Test Button – manually finish and show results */}
+          <div className="tp-field-group tp-field-group--btn">
+            <button
+              id="tp-btn-end-test"
+              type="button"
+              className="tp-action-btn tp-btn--end"
+              onClick={() => { if (isRunning || typedChars.length > 0) finishTest(); }}
+              disabled={isFinished || (!isRunning && typedChars.length === 0)}
+              title="End the test now and see your results"
+            >
+              End Test
+            </button>
+          </div>
+
           {/* Paste Custom Text Button */}
           <div className="tp-field-group tp-field-group--btn">
             <button
               id="tp-btn-paste-custom"
               type="button"
               className="tp-action-btn tp-btn--paste"
-              onClick={() => setShowCustomModal(true)}
+              onClick={() => { setCustomText(passage); setShowCustomModal(true); }}
             >
               Paste Custom Text
             </button>
@@ -607,6 +622,25 @@ export default function App() {
             >
               Indicator: {showIndicator ? 'ON' : 'OFF'}
             </button>
+          </div>
+
+          {/* Timer – moved to toolbar, right-aligned */}
+          <div className="tp-toolbar-timer">
+            <span className="tp-toolbar-timer-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </span>
+            <span className="tp-toolbar-timer-val" id="val-time-remaining">
+              {formatTime(timeLeft)}
+            </span>
+            <div className="tp-toolbar-timer-progress">
+              <div
+                className="tp-toolbar-timer-bar"
+                style={{ width: `${timeProgressPercent}%` }}
+              />
+            </div>
           </div>
         </div>
 
@@ -678,121 +712,7 @@ export default function App() {
 
         </div>
 
-        {/* 5. BOTTOM METRICS DASHBOARD (5 CARDS IN A ROW) */}
-        {/* WPM, CPM, Errors, Accuracy are HIDDEN during typing, visible only after completion */}
-        <div className="tp-metrics-row">
 
-          {/* CARD 1: Time Remaining (Always visible with live countdown) */}
-          <div className="tp-metric-card tp-metric-card--time">
-            <div className="tp-metric-title">Time Remaining</div>
-            <div className="tp-metric-body">
-              <span className="tp-metric-icon tp-metric-icon--clock">
-                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-              </span>
-              <span className="tp-metric-val tp-metric-val--time" id="val-time-remaining">
-                {formatTime(timeLeft)}
-              </span>
-            </div>
-            <div className="tp-time-progress-track">
-              <div
-                className="tp-time-progress-bar"
-                style={{ width: `${timeProgressPercent}%` }}
-              />
-            </div>
-          </div>
-
-          {/* CARD 2: WPM (Hidden from start to finish, visible on completion) */}
-          <div className="tp-metric-card tp-metric-card--wpm">
-            <div className="tp-metric-title">WPM (Words per Minute)</div>
-            <div className="tp-metric-body">
-              <span className="tp-metric-icon tp-metric-icon--gauge">
-                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2a10 10 0 0 0-10 10c0 4.2 2.6 7.8 6.3 9.3" />
-                  <path d="M22 12A10 10 0 0 0 12 2" />
-                  <path d="M12 12l4-4" />
-                  <circle cx="12" cy="12" r="2" fill="#2563eb" />
-                </svg>
-              </span>
-              <div className="tp-metric-number-group">
-                <span className="tp-metric-val tp-metric-val--wpm" id="val-wpm">
-                  {isFinished ? stats.wpm : '--'}
-                </span>
-                <span className="tp-metric-unit">WPM</span>
-              </div>
-            </div>
-          </div>
-
-          {/* CARD 3: CPM (Hidden from start to finish, visible on completion) */}
-          <div className="tp-metric-card tp-metric-card--cpm">
-            <div className="tp-metric-title">CPM (Characters per Minute)</div>
-            <div className="tp-metric-body">
-              <span className="tp-metric-icon tp-metric-icon--keyboard">
-                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2" y="4" width="20" height="16" rx="2" />
-                  <line x1="6" y1="8" x2="6.01" y2="8" strokeWidth="2.5" />
-                  <line x1="10" y1="8" x2="10.01" y2="8" strokeWidth="2.5" />
-                  <line x1="14" y1="8" x2="14.01" y2="8" strokeWidth="2.5" />
-                  <line x1="18" y1="8" x2="18.01" y2="8" strokeWidth="2.5" />
-                  <line x1="6" y1="12" x2="6.01" y2="12" strokeWidth="2.5" />
-                  <line x1="10" y1="12" x2="10.01" y2="12" strokeWidth="2.5" />
-                  <line x1="14" y1="12" x2="14.01" y2="12" strokeWidth="2.5" />
-                  <line x1="18" y1="12" x2="18.01" y2="12" strokeWidth="2.5" />
-                  <line x1="7" y1="16" x2="17" y2="16" strokeWidth="2" />
-                </svg>
-              </span>
-              <div className="tp-metric-number-group">
-                <span className="tp-metric-val tp-metric-val--cpm" id="val-cpm">
-                  {isFinished ? stats.cpm : '--'}
-                </span>
-                <span className="tp-metric-unit">CPM</span>
-              </div>
-            </div>
-          </div>
-
-          {/* CARD 4: Errors (Hidden from start to finish, visible on completion) */}
-          <div className="tp-metric-card tp-metric-card--errors">
-            <div className="tp-metric-title">Errors</div>
-            <div className="tp-metric-body">
-              <span className="tp-metric-icon tp-metric-icon--error">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="#dc2626">
-                  <circle cx="12" cy="12" r="10" fill="#dc2626" />
-                  <path d="M15 9l-6 6M9 9l6 6" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
-                </svg>
-              </span>
-              <div className="tp-metric-number-group">
-                <span className="tp-metric-val tp-metric-val--err" id="val-errors">
-                  {isFinished ? stats.errors : '--'}
-                </span>
-                <span className="tp-metric-unit tp-metric-unit--words">
-                  {isFinished ? `/ ${stats.totalWords} words` : ''}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* CARD 5: Accuracy (Hidden from start to finish, visible on completion) */}
-          <div className="tp-metric-card tp-metric-card--accuracy">
-            <div className="tp-metric-title">Accuracy</div>
-            <div className="tp-metric-body">
-              <span className="tp-metric-icon tp-metric-icon--accuracy">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <circle cx="12" cy="12" r="6" />
-                  <circle cx="12" cy="12" r="2" fill="#2563eb" />
-                </svg>
-              </span>
-              <div className="tp-metric-number-group">
-                <span className="tp-metric-val tp-metric-val--acc" id="val-accuracy">
-                  {isFinished ? `${stats.accuracy}%` : '--%'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-        </div>
 
       </div>
 
@@ -816,6 +736,15 @@ export default function App() {
                 <p style={{ color: '#64748b', fontSize: '0.82rem', marginBottom: '1rem' }}>
                   Your typing performance results have been saved to local session records.
                 </p>
+              </div>
+
+              {/* Time elapsed */}
+              <div className="tp-results-time-row">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                Time: {formatTime(stats.elapsed)}
               </div>
 
               {/* 4 Performance Metric Cards in Popup */}
@@ -871,6 +800,12 @@ export default function App() {
                 >
                   New Passage
                 </button>
+                <button
+                  className="tp-dlg-btn"
+                  onClick={() => setShowResultsPopup(false)}
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
@@ -898,12 +833,12 @@ export default function App() {
                 autoFocus
               />
               <div className="tp-dialog-footer">
-                <span className="tp-char-count">{customText.trim().length} characters</span>
+                <span className="tp-char-count">{customText.length} characters</span>
                 <div className="tp-dialog-btns">
                   <button className="tp-dlg-btn" onClick={() => setShowCustomModal(false)}>Cancel</button>
                   <button
                     className="tp-dlg-btn tp-dlg-btn--primary"
-                    disabled={customText.trim().length < 10}
+                    disabled={customText.length < 10}
                     onClick={handleCustomTextSubmit}
                   >
                     Load & Practice
